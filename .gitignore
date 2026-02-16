@@ -1,0 +1,15 @@
+.env
+.env.dev
+
+build/
+dist/
+
+test/
+
+setting.json
+
+logs/
+
+.minecraft/
+
+.conda/
