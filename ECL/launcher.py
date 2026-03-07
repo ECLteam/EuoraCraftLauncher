@@ -5,11 +5,12 @@ import colorama
 from .logger import get_logger, LoggerManager
 from .config import ConfigManager
 from .ui.ui import run_ui
+from .game.java import get_java_list
 
 logger = get_logger("launcher")
 
 class EuoraCraftLauncher:
-    """启动器主类，负责初始化环境和启动 UI"""
+    # 启动器主类
     
     def __init__(self):
         self.config_manager = ConfigManager()
@@ -17,7 +18,6 @@ class EuoraCraftLauncher:
         self.debug_mode = False
 
     def _init_platform(self):
-        """初始化平台相关设置"""
         logger.info("当前工作系统：%s", sys.platform)
         match sys.platform:
             case "win32":
@@ -34,13 +34,11 @@ class EuoraCraftLauncher:
                 raise RuntimeError(f"不支持的操作系统平台: {sys.platform}")
 
     def _log_environment_info(self):
-        """记录环境信息"""
         logger.info("当前工作目录：%s", os.getcwd())
         logger.info("执行文件路径：%s", sys.executable)
         logger.info("程序目录：%s", os.path.dirname(sys.executable))
 
     def _handle_version_info(self):
-        """处理版本信息显示"""
         launcher_cfg = self.config_manager.get_launcher_config()
         version = launcher_cfg.get("version", "未知")
         version_type = launcher_cfg.get("version_type", "unknown")
@@ -59,7 +57,6 @@ class EuoraCraftLauncher:
                 logger.warning("未知的版本类型：%s, 请移除配置文件并重启启动器", version_type)
 
     def initialize(self):
-        """执行完整的初始化流程"""
         logger.info("EuoraCraft Launcher 启动中...")
         try:
             self._init_platform()
@@ -84,12 +81,17 @@ class EuoraCraftLauncher:
                 logger.debug("调试模式已启用")
                 import json
                 logger.debug("完整配置内容：\n%s", json.dumps(self.config, ensure_ascii=False, indent=2))
+            
+            # 获取 Java 列表
+            self.java_list = get_java_list()
+            if not self.java_list:
+                logger.warning("未找到任何 Java 安装")
+            logger.debug("Java 列表: %s", self.java_list)
                 
         except Exception as e:
             logger.error("初始化启动器时出错: %s", e)
             sys.exit(1)
 
     def run(self):
-        """运行启动器"""
         self.initialize()
-        run_ui(self.config, self.debug_mode)
+        run_ui(self.config, self.debug_mode, self.config_manager)

@@ -4,8 +4,6 @@
 build/
 dist/
 
-test/
-
 setting.json
 
 logs/
@@ -13,3 +11,10 @@ logs/
 .minecraft/
 
 .conda/
+
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.log
+*.tmp
+*.pyc

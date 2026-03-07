@@ -4,9 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 class ColoredFormatter(logging.Formatter):
-    """彩色日志格式器"""
     
-    # ANSI 颜色代码
     COLORS = {
         'DEBUG': '\033[36m',    # 青色
         'INFO': '\033[32m',     # 绿色
@@ -32,7 +30,6 @@ class ColoredFormatter(logging.Formatter):
 
 
 class LoggerManager:
-    """全局日志管理器"""
     
     _instance: Optional['LoggerManager'] = None
     _initialized: bool = False
@@ -55,7 +52,6 @@ class LoggerManager:
         LoggerManager._initialized = True
     
     def _setup_handlers(self, colored: bool) -> None:
-        """配置日志处理器"""
         if self._root_logger.handlers:
             return
         
@@ -113,18 +109,14 @@ class LoggerManager:
         self._root_logger.addHandler(error_handler)
     
     def get_logger(self, name: Optional[str] = None) -> logging.Logger:
-        """获取日志记录器"""
         if name:
             return self._root_logger.getChild(name)
         return self._root_logger
     
     def set_level(self, level: int) -> None:
-        """动态修改日志级别"""
         self._root_logger.setLevel(level)
         self._console_handler.setLevel(level)
 
-# 全局快捷函数
 def get_logger(name: Optional[str] = None) -> logging.Logger:
-    """快速获取日志记录器"""
     manager = LoggerManager()
     return manager.get_logger(name)

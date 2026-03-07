@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, fields, asdict
 from pathlib import Path
 from uuid import UUID
@@ -5,107 +6,76 @@ import hashlib
 import zipfile
 import json
 import os
-from typing import Optional, Tuple, Dict, Any
 
-def name_to_path(name: str) -> Optional[str]:
-    """将 Maven 格式的名称转换为文件路径"""
+
+def replace_last(text: str, old: str, new: str) -> str:  # 替换字符串最后一个匹配项, 到底是为什么适配的呢?好难猜啊
+    return new.join(text.rsplit(old, 1))
+
+
+def name_to_path(name: str) -> str | None:  # 将文件名字转换为路径函数
     at_index = name.find("@")
-    suffix = "jar"
     if at_index != -1:
         suffix = name[at_index + 1:]
         name = name[0:at_index]
-    
+    else:
+        suffix = "jar"
     parts = name.split(":")
-    if len(parts) < 3:
-        return None
-        
-    group_path = parts[0].replace('.', '/')
-    artifact = parts[1]
-    version = parts[2]
-    
     if len(parts) == 4:
-        classifier = parts[3]
-        return f"{group_path}/{artifact}/{version}/{artifact}-{version}-{classifier}.{suffix}"
-    
-    return f"{group_path}/{artifact}/{version}/{artifact}-{version}.{suffix}"
+        return f"{parts[0].replace('.', '/')}/{parts[1]}/{parts[2]}/{parts[1]}-{parts[2]}-{parts[3]}.{suffix}"
+    elif len(parts) == 3:
+        return f"{parts[0].replace('.', '/')}/{parts[1]}/{parts[2]}/{parts[1]}-{parts[2]}.{suffix}"
+    else:
+        return None
 
-def name_to_uuid(name: str) -> UUID:
-    """将玩家昵称转换为离线模式 UUID"""
+
+def name_to_uuid(name: str) -> UUID:  # 将玩家昵称转换为UUID3函数
     return UUID(bytes=hashlib.md5(f"OfflinePlayer:{name}".encode("utf-8")).digest()[:16], version=3)
 
-def is_uuid3(uuid_string: str) -> bool:
-    """检测一个字符串是否为 UUID3 格式"""
+
+def is_uuid3(uuid_string: str) -> bool:  # 检测一个字符串是否为UUID3函数
     try:
         return UUID(uuid_string, version=3).version == 3
     except ValueError:
         return False
 
-def unzip(zip_path: str | Path, unzip_path: str | Path) -> None:
-    """解压文件函数，增加异常日志"""
+
+def unzip(zip_path: str | Path, unzip_path: str | Path) -> None:  # 解压文件函数
     try:
         with zipfile.ZipFile(zip_path) as zip_object:
-            zip_object.extractall(unzip_path)
-    except (zipfile.BadZipFile, FileNotFoundError) as e:
-        # 这里可以根据需要记录日志
+            for file in zip_object.namelist():
+                zip_object.extract(file, unzip_path)
+    except (zipfile.BadZipFile, FileNotFoundError):
         pass
 
-def get_file_sha1(file_path: str | Path) -> str:
-    """获取文件 Sha1，优化读取性能"""
+
+def get_file_sha1(file_path: str | Path) -> str:  # 获取文件 Sha1
     sha1 = hashlib.sha1()
     if os.path.isfile(file_path):
-        with open(file_path, "rb") as f:
-            while chunk := f.read(8192):
-                sha1.update(chunk)
+        with open(file_path, "rb") as open_file:
+            for file_part in iter(lambda: open_file.read(8192), b""):
+                sha1.update(file_part)
     return sha1.hexdigest()
 
-def find_version(version_json: Dict[str, Any], game_path: Path, current_version_name: str = None) -> Optional[Tuple[Dict[str, Any], Path]]:
-    """寻找继承的原版游戏版本"""
-    inherits_from = version_json.get("inheritsFrom")
-    if not inherits_from:
-        return None
-        
-    versions_dir = game_path / "versions"
-    
-    # 1. 优先检查当前版本文件夹（自包含模式）
-    if current_version_name:
-        local_json = versions_dir / current_version_name / f"{inherits_from}.json"
-        if local_json.exists():
-            try:
-                return json.loads(local_json.read_text("utf-8")), versions_dir / current_version_name
-            except Exception:
-                pass
 
-    if not versions_dir.exists():
-        return None
-
-    # 2. 检查独立的原版文件夹
-    target_dir = versions_dir / inherits_from
-    target_json = target_dir / f"{inherits_from}.json"
-    if target_json.exists():
-        try:
-            return json.loads(target_json.read_text("utf-8")), target_dir
-        except Exception:
-            pass
-
-    # 遍历查找 (针对目录名与 ID 不一致的情况)
-    for version_path in versions_dir.iterdir():
-        if not version_path.is_dir():
-            continue
-        game_json_path = version_path / f"{version_path.name}.json"
-        if not game_json_path.is_file():
-            continue
-        try:
+def find_version(version_json: dict, game_path: Path) -> tuple[dict, Path] | None:
+    if "inheritsFrom" in version_json:  # 若有Mod加载器则寻找原版游戏
+        inherits_from = version_json["inheritsFrom"]
+        for version_path in (game_path / "versions").iterdir():  # 通过版本Json内的id键查找是否为对应的游戏版本, 而不是根据Json的名字判断
+            if not version_path.is_dir(): continue
+            game_json_path = version_path / f"{version_path.name}.json"
+            if not game_json_path.is_file(): continue
             game_json = json.loads(game_json_path.read_text("utf-8"))
-            if game_json.get("id") == inherits_from:
-                return game_json, version_path
-        except Exception:
-            continue
-            
+            if game_json["id"] != inherits_from: continue
+            return game_json, version_path
+        version_path = game_path / "versions" / inherits_from
+        if (version_path / f"{inherits_from}.json").is_file():  # 如果没找到则尝试直接找inheritsFrom对应的版本
+            return json.loads((version_path / f"{inherits_from}.json").read_text("utf-8")), version_path
+        return None
     return None
 
+
 @dataclass
-class ApiUrl:
-    """Api 数据结构"""
+class ApiUrl:  # Api数据结构
     Meta: str = "https://launchermeta.mojang.com"
     Data: str = "https://launcher.mojang.com"
     Libraries: str = "https://libraries.minecraft.net"
@@ -117,17 +87,45 @@ class ApiUrl:
     Quilt: str = "https://maven.quiltmc.org"
     QuiltMeta: str = "https://meta.quiltmc.org"
 
-    def to_dict(self) -> Dict[str, str]:
+    def get(self, key_name: str) -> dict[str, str] | None:
+        return getattr(self, key_name, None)
+
+    def to_dict(self):
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, api_url_dict: Dict[str, str]) -> 'ApiUrl':
-        valid_fields = {f.name for f in fields(cls)}
-        kw = {k: v.strip("/") for k, v in api_url_dict.items() if k in valid_fields}
+    def from_dict(cls, api_url_dict: dict):
+        kw = {}
+        for api_name in fields(cls):
+            if api_name.name in api_url_dict: kw.update({api_name.name: api_url_dict[api_name.name].strip("/")})
         return cls(**kw)
 
-    def update_from_dict(self, api_url_dict: Dict[str, str]):
-        valid_fields = {f.name for f in fields(self)}
-        for k, v in api_url_dict.items():
-            if k in valid_fields:
-                setattr(self, k, v.strip("/"))
+    def update_from_dict(self, api_url_dict: dict):
+        for api_name in fields(self):
+            if api_name.name in api_url_dict: setattr(self, api_name.name, api_url_dict[api_name.name].strip("/"))
+
+
+def parse_datetime(time_str: str):  # 前端不建议用
+    # 解析ISO时间字符串并转为UTC+8
+    # 解析时间字符串
+    original_dt = datetime.fromisoformat(time_str)
+    # 转换为UTC+8时间
+    converted_dt = original_dt.astimezone(timezone(timedelta(hours=8)))
+    return {
+        "Original": {
+            "Datetime": original_dt,
+            "Date": original_dt.date(),
+            "Time": original_dt.time(),
+            "Timezone": original_dt.tzinfo,
+            "Iso": original_dt.isoformat(),
+            "Offset": original_dt.utcoffset(),
+        },
+        "Converted": {
+            "Datetime": converted_dt,
+            "Date": converted_dt.date(),
+            "Time": converted_dt.time(),
+            "Timezone": converted_dt.tzinfo,
+            "Iso": converted_dt.isoformat(),
+            "Offset": converted_dt.utcoffset(),
+        }
+    }
